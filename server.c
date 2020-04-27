@@ -117,15 +117,6 @@ void update_buffer() {
     memset(buffer + i, '\0', (WINDOW_SIZE * PACKET_SIZE) - i);
 }
 
-/* debugging */
-void print_buffer() {
-    printf("\nPrinting Buffer at expected sequence number %d:\n", expected_seq);
-    for(int i = 0; i < (WINDOW_SIZE * PACKET_SIZE) + 1; i++) {
-        printf("%c", buffer[i]);
-    }
-    printf("\nBuffer printed\n");
-}
-
 int main() {
     /* setting seed for rand() */
     srand(time(0));
@@ -154,6 +145,10 @@ int main() {
         /* print received packet */
         print_packet("R", "DATA", pkt.seq_no, ((pkt.relay_no == 0) ? "RELAY2" : "RELAY1"), "SERVER");
 
+        if(pkt.is_last) {
+            last_seq_no = pkt.seq_no;
+        }
+
         if(pkt.seq_no == expected_seq) {
             /* write payload to buffer */
             strncpy(buffer, pkt.payload, pkt.payload_size);
@@ -179,11 +174,23 @@ int main() {
             /* print acknowledgement */
             print_packet("S", "ACK", ack.seq_no, "SERVER", ((ack.relay_no == 0) ? "RELAY2" : "RELAY1"));
 
+            if(is_last_ack == 1) {
+                /* sending extra ACK to terminate other relay, won't affect client if it is alive */
+                pkt.relay_no = (pkt.relay_no + 1) % 2;
+                memset(&relay_addr, 0, sizeof(struct sockaddr_in));
+                relay_addr.sin_port = htons(((pkt.relay_no == 0) ? RELAY_2_SERVER_TO_CLIENT_PORT : RELAY_1_SERVER_TO_CLIENT_PORT));
+                relay_addr.sin_addr.s_addr = inet_addr(((pkt.relay_no == 0) ? RELAY_2_IP : RELAY_1_IP));
+                relay_addr.sin_family = AF_INET;
+                if(sendto(relay_sock, &ack, sizeof(Packet), 0, (struct sockaddr*) &relay_addr, sizeof(struct sockaddr_in)) < 0) {
+                    report_error("Failed to send extra termination packet to relay");
+                }
+
+                /* print acknowledgement */
+                print_packet("S", "ACK", ack.seq_no, "SERVER", ((ack.relay_no == 0) ? "RELAY2" : "RELAY1"));
+            }
+
             /* update buffer */
             update_buffer();
-
-            /* debugging */
-            print_buffer();
         } else if(pkt.seq_no > expected_seq && pkt.seq_no - expected_seq <= ((WINDOW_SIZE - 1) * PACKET_SIZE)) {
             /* send acknowledgement */
             struct sockaddr_in relay_addr;
@@ -198,9 +205,6 @@ int main() {
             /* write packet to buffer */
             int index = pkt.seq_no - expected_seq;
             strncpy(buffer + index, pkt.payload, pkt.payload_size);
-
-            /* debugging */
-            print_buffer();
         } else {
             /* drop packet */
             print_packet("D", "DATA", pkt.seq_no, ((pkt.relay_no == 0) ? "RELAY2" : "RELAY1"), "SERVER");

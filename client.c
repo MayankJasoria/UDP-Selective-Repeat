@@ -377,7 +377,8 @@ int main() {
     /* send all packets */
     send_all_packets(0);
 
-    while(!(buffer[0].pkt.is_last == 1 && buffer[0].is_ackd == 1)) {
+    int is_last_ack = 0;
+    while(is_last_ack == 0) {
         /* update buffer */
         update_buffer(fptr);
 
@@ -418,6 +419,12 @@ int main() {
 
         /* register ack */
         ack_packet(ack.seq_no);
+
+        /* server decided to close connection */
+        if(ack.is_last == 1) {
+            is_last_ack = 1;
+            continue;
+        }
 
         /* end timer for operation */
         size_t end = clock();

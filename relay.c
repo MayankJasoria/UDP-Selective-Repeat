@@ -8,21 +8,9 @@
 #include <sys/time.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "packet.h"
-
-/**
- * Structure of a 'priority queue' to maintain the packets in 
- * sorted order of thier sending time (= recv_timestamp + send_delay)
- */
-// typedef struct timed_packet_queue {
-//     long recv_timestamp;
-//     long send_delay;
-//     Packet pkt;
-//     struct timed_packet_queue* next;
-// } TimedPacketQueue;
-
-// TimedPacketQueue* queueHead = NULL;
 
 pid_t pid;
 struct sockaddr_in client_addr, serv_addr;
@@ -114,83 +102,6 @@ int accept_or_drop() {
 }
 
 /**
- * dequeues the rop packet form the 'priority queue'
- */
-// void dequeue_packet() {
-//     if(queueHead == NULL) {
-//         return;
-//     }
-//     TimedPacketQueue* delPacket = queueHead;
-//     queueHead = queueHead->next;
-//     free(delPacket);
-// }
-
-/**
- * enqueues a new packet (sorted linked list, more appropriately), prints it,
- * computes the added delay, and if needed, initializes a timer for the packet
- * @param pkt   The packet to be enqueued
- */
-// void enqueue_packet(Packet pkt) {
-//     TimedPacketQueue* newPacket = (TimedPacketQueue*) malloc(sizeof(TimedPacketQueue));
-//     newPacket->pkt = pkt;
-//     struct timeval tv;
-//     gettimeofday(&tv, NULL);
-//     newPacket->recv_timestamp = time_in_millis(tv.tv_sec, tv.tv_usec);
-//     newPacket->send_delay = delay_time();
-//     newPacket->next = NULL;
-
-//     if(queueHead == NULL) {
-//         queueHead = newPacket;
-//         /* create new alarm */
-//         struct itimerval it_val;
-//         struct timeval it_timeval;
-//         it_timeval.tv_sec = 0;
-//         it_timeval.tv_usec = newPacket->send_delay * 1000;
-//         it_val.it_value = it_timeval;
-
-//         if(tv.tv_usec == 0) {
-//             /* send packet immediately instead */
-//             if(sendto(server_sock, &(newPacket->pkt), sizeof(Packet), 0, (struct sockaddr*) &serv_addr, sizeof(struct sockaddr_in)) < 0) {
-//                 report_error("Failed to send packet to server");
-//             }
-//             dequeue_packet();
-//         } else {
-//             it_timeval.tv_usec = 0;
-//             it_val.it_interval = it_timeval;
-//             setitimer(ITIMER_REAL, &it_val, NULL);
-//         }
-//     } else if(queueHead->recv_timestamp + queueHead->send_delay > newPacket->recv_timestamp + newPacket->send_delay) {
-//         newPacket->next = queueHead;
-//         queueHead = newPacket;
-//         /* create new alarm */
-//         struct itimerval it_val;
-//         struct timeval it_timeval;
-//         it_timeval.tv_sec = 0;
-//         it_timeval.tv_usec = newPacket->send_delay * 1000;
-//         it_val.it_value = it_timeval;
-//         if(tv.tv_usec == 0) {
-//             /* send packet immediately instead */
-//             if(sendto(server_sock, &(newPacket->pkt), sizeof(Packet), 0, (struct sockaddr*) &serv_addr, sizeof(struct sockaddr_in)) < 0) {
-//                 report_error("Failed to send packet to server");
-//             }
-//             dequeue_packet();
-//         } else {
-//             it_timeval.tv_usec = 0;
-//             it_val.it_interval = it_timeval;
-//             setitimer(ITIMER_REAL, &it_val, NULL);
-//         }
-//     } else {
-//         TimedPacketQueue* curr = queueHead;
-//         while(curr -> next != NULL &&
-//             (curr->recv_timestamp + curr->send_delay) < (newPacket->recv_timestamp + newPacket->send_delay)) {
-//             curr = curr->next;
-//         }
-//         newPacket->next = curr->next;
-//         curr->next = newPacket;
-//     }
-// }
-
-/**
  * Creates a UDP socket bound to the host's IPv4 and PORT
  * @param ip            The IP address of host
  * @param local_port    The port number to use for locally receiving data
@@ -241,30 +152,6 @@ struct sockaddr_in create_dest_addr(char* ip, int port) {
  * @param signo Unused (value of the signal received)
  */
 void sigalrm_handler(int signo) {
-    // struct timeval tv;
-    // gettimeofday(&tv, NULL);
-    // while((queueHead != NULL) && (time_in_millis(tv.tv_sec, tv.tv_usec) >= (queueHead->recv_timestamp + queueHead->send_delay))) {
-    //     if(sendto(server_sock, &(queueHead->pkt), sizeof(Packet), 0, (struct sockaddr*) &serv_addr, sizeof(struct sockaddr_in)) < 0) {
-    //         report_error("Failed to send packet to server");
-    //     }
-
-    //     /*print packet*/
-    //     print_packet(odd_even, "S", "DATA", queueHead->pkt.seq_no, ((odd_even == 0) ? "RELAY2" : "RELAY1"), "SERVER");
-
-    //     dequeue_packet();
-    //     gettimeofday(&tv, NULL);
-    // }
-    // if(queueHead != NULL) {
-    //     /* create new alarm for waiting packet */
-    //     struct itimerval* it_val = (struct itimerval*) malloc(sizeof(struct itimerval));
-    //     struct timeval ittime_val;
-    //     ittime_val.tv_sec = 0;
-    //     ittime_val.tv_usec = ((queueHead->recv_timestamp + queueHead->send_delay) - time_in_millis(tv.tv_sec, tv.tv_usec)) * 1000;
-    //     it_val->it_value = ittime_val;
-    //     ittime_val.tv_usec = 0;
-    //     it_val->it_interval = ittime_val;
-    //     setitimer(ITIMER_REAL, it_val, NULL);
-    // }
     if(sendto(server_sock, &send_pkt, sizeof(Packet), 0, (struct sockaddr*) &serv_addr, sizeof(struct sockaddr_in)) < 0) {
         report_error("Failed to send DATA to server");
     }
@@ -300,6 +187,9 @@ int main(int argc, char** argv) {
     /* setting a signal handler for SIGINT */
     signal(SIGINT, sigint_handler);
 
+    /* ignoring status of child processes, to prevent formation of zombie processes */
+    signal(SIGCHLD,SIG_IGN);
+
     /* print headings */
     printf("Node Name\tEvent Type\tTimestamp\tPacket Type\tSeq. No.\tSource\tDestination\n");
 
@@ -324,16 +214,15 @@ int main(int argc, char** argv) {
 
             /* print sending log */
             print_packet(odd_even, "S", "ACK", pkt.seq_no, ((odd_even == 0) ? "RELAY2" : "RELAY1"), "CLIENT");
+
+            if(pkt.is_last) {
+                printf("\nFile transfer has been completed. Terminating relay\n");
+                /* server indicated termination, terminate relays */
+                kill(getppid(), SIGINT); /* parent will initiate termination of child, perform cleanup, and exit */
+            }
         }
     } else {
         /* listen for packets from client and send to server */
-        
-        /* setting up signal handler for SIGALRM */
-        // struct sigaction sa;
-        // memset(&sa, 0, sizeof(sa));
-        // sa.sa_handler = sigalrm_handler;
-        // sa.sa_flags = SA_RESTART;
-        // sigaction(SIGALRM, &sa, NULL);
 
         Packet pkt;
 
