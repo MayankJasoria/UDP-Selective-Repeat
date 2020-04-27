@@ -114,6 +114,8 @@ Packet create_packet(FILE* fptr) {
     pkt.payload_size = fread(pkt.payload, 1, PACKET_SIZE, fptr);
     if(pkt.payload_size < PACKET_SIZE) {
         pkt.is_last = 1;
+    } else {
+        pkt.is_last = 0;
     }
     if(pkt_count%2 == 0) {
         pkt.relay_no = 0;

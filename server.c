@@ -80,12 +80,12 @@ void print_packet(char* event_type, char* pkt_type, int seq_no, char* src, char*
 
 /**
  * Creates an acknowledgement packet for a given sequence number
- * @param seq_no    The sequence number of the packet which is to be ACK'd
- * @param relayAddr The address of the relay to be used for sending ACK
+ * @param seq_no     The sequence number of the packet which is to be ACK'd
+ * @param relay_addr The address of the relay to be used for sending ACK
  *
  * @return ACK packet for the given sequence number
  */
-Packet create_ack(int seq_no, int is_last, struct sockaddr_in* relayAddr) {
+Packet create_ack(int seq_no, int is_last, struct sockaddr_in* relay_addr) {
     Packet pkt;
     strcpy(pkt.payload, "");
     pkt.payload_size = 0;
@@ -94,9 +94,9 @@ Packet create_ack(int seq_no, int is_last, struct sockaddr_in* relayAddr) {
 
     int relay_to_use = rand() % 2;
 
-    relayAddr->sin_family = AF_INET;
-    relayAddr->sin_addr.s_addr = inet_addr((relay_to_use == 0) ? RELAY_2_IP : RELAY_1_IP);
-    relayAddr->sin_port = htons((relay_to_use == 0) ? RELAY_2_SERVER_TO_CLIENT_PORT : RELAY_1_SERVER_TO_CLIENT_PORT);
+    relay_addr->sin_family = AF_INET;
+    relay_addr->sin_addr.s_addr = inet_addr((relay_to_use == 0) ? RELAY_2_IP : RELAY_1_IP);
+    relay_addr->sin_port = htons((relay_to_use == 0) ? RELAY_2_SERVER_TO_CLIENT_PORT : RELAY_1_SERVER_TO_CLIENT_PORT);
 
     return pkt;
 }
@@ -106,17 +106,24 @@ Packet create_ack(int seq_no, int is_last, struct sockaddr_in* relayAddr) {
  * (and holes for yet-to-be-received packets) to leftmost end
  */
 void update_buffer() {
-    /* finding size of in-sequence packets */
-    int end_in_seq = strlen(buffer);
+    /* finding new start of buffer */
+    int next_start = strlen(buffer);
     int i;
-
-    /* overwriting from start of buffer with remainign packets and holes */
-    for(i = 0; i + end_in_seq < (WINDOW_SIZE * PACKET_SIZE); i++) {
-        buffer[i] = buffer[end_in_seq + i];
+    for(i = 0; i + next_start < (WINDOW_SIZE * PACKET_SIZE); i++) {
+        buffer[i] = buffer[i+ next_start] ;
     }
 
-    /* clearing end of buffer */
-    memset(buffer + i, '\0', (WINDOW_SIZE * PACKET_SIZE + 1) - i);
+    /* clearing remaining buffer */
+    memset(buffer + i, '\0', (WINDOW_SIZE * PACKET_SIZE) - i);
+}
+
+/* debugging */
+void print_buffer() {
+    printf("\nPrinting Buffer at expected sequence number %d:\n", expected_seq);
+    for(int i = 0; i < (WINDOW_SIZE * PACKET_SIZE) + 1; i++) {
+        printf("%c", buffer[i]);
+    }
+    printf("\nBuffer printed\n");
 }
 
 int main() {
@@ -139,53 +146,65 @@ int main() {
     fseek(fptr, 0, SEEK_SET);
 
     while(is_last_ack == 0) {
-        Packet pkt, ack;
-        int size = sizeof(struct sockaddr_in);
-
-        /* receive incoming packet */
+        Packet pkt;
         if(recv(relay_sock, &pkt, sizeof(Packet), 0) < 0) {
             report_error("Failed to receive packet from client");
         }
 
-        /* print received packet log */
+        /* print received packet */
         print_packet("R", "DATA", pkt.seq_no, ((pkt.relay_no == 0) ? "RELAY2" : "RELAY1"), "SERVER");
 
-        if(pkt.is_last == 1) {
-            last_seq_no = pkt.seq_no;
-        }
-
         if(pkt.seq_no == expected_seq) {
-            /* write packet to file */
-            fwrite(pkt.payload, 1, pkt.payload_size, fptr);
-            expected_seq += pkt.payload_size;
+            /* write payload to buffer */
+            strncpy(buffer, pkt.payload, pkt.payload_size);
 
-            /* writing other in-order packets to file */
-            expected_seq += strlen(buffer);
+            /* write buffer to file */
             fprintf(fptr, "%s", buffer);
-            
-            /* update buffer for incoming packets */
+
+            /* update expected sequence number */
+            expected_seq += strlen(buffer);
+
+            /* check if all packets have been received */
+            if(expected_seq >= last_seq_no) {
+                is_last_ack = 1;
+            }
+
+            /* send acknowledgement */
+            struct sockaddr_in relay_addr;
+            Packet ack = create_ack(pkt.seq_no, is_last_ack, &relay_addr);
+            if(sendto(relay_sock, &ack, sizeof(Packet), 0, (struct sockaddr*) &relay_addr, sizeof(struct sockaddr_in)) < 0) {
+                report_error("Failed to send acknowledgement to client");
+            }
+
+            /* print acknowledgement */
+            print_packet("S", "ACK", ack.seq_no, "SERVER", ((ack.relay_no == 0) ? "RELAY2" : "RELAY1"));
+
+            /* update buffer */
             update_buffer();
-        } else if(pkt.seq_no >= expected_seq && pkt.seq_no <= expected_seq + WINDOW_SIZE * PACKET_SIZE) {
+
+            /* debugging */
+            print_buffer();
+        } else if(pkt.seq_no > expected_seq && pkt.seq_no - expected_seq <= ((WINDOW_SIZE - 1) * PACKET_SIZE)) {
+            /* send acknowledgement */
+            struct sockaddr_in relay_addr;
+            Packet ack = create_ack(pkt.seq_no, is_last_ack, &relay_addr);
+            if(sendto(relay_sock, &ack, sizeof(Packet), 0, (struct sockaddr*) &relay_addr, sizeof(struct sockaddr_in)) < 0) {
+                report_error("Failed to send acknowledgement to client");
+            }
+
+            /* print acknowledgement */
+            print_packet("S", "ACK", ack.seq_no, "SERVER", ((ack.relay_no == 0) ? "RELAY2" : "RELAY1"));
+
             /* write packet to buffer */
-            int start_index = pkt.seq_no - expected_seq - PACKET_SIZE;
-            strncpy(buffer + start_index, pkt.payload, pkt.payload_size);
+            int index = pkt.seq_no - expected_seq;
+            strncpy(buffer + index, pkt.payload, pkt.payload_size);
+
+            /* debugging */
+            print_buffer();
         } else {
+            /* drop packet */
             print_packet("D", "DATA", pkt.seq_no, ((pkt.relay_no == 0) ? "RELAY2" : "RELAY1"), "SERVER");
         }
-
-        if(expected_seq >= last_seq_no) {
-            is_last_ack = 1;
-        }
-
-        /* send acknowledgement (via same channel, for simplicity) */
-        struct sockaddr_in relayAddr;
-        ack = create_ack(pkt.seq_no, is_last_ack, &relayAddr);
-        if(sendto(relay_sock, &ack, sizeof(Packet), 0, (struct sockaddr*) &relayAddr, size) < 0) {
-            report_error("Failed to send ACK to client");
-        }
-
-        /* print acknowledgement */
-        print_packet("S", "ACK", ack.seq_no, "SERVER",  ((pkt.relay_no == 0) ? "RELAY2" : "RELAY1"));
     }
 
     fclose(fptr);
