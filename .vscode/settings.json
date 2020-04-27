@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "packet.h": "c",
+        "time.h": "c"
+    }
+}
