@@ -1,37 +1,3 @@
-## Welcome to GitHub Pages
+# UDP Selective Repeat
 
-You can use the [editor on GitHub](https://github.com/MayankJasoria/UDP-Selective-Repeat/edit/master/README.md) to maintain and preview the content for your website in Markdown files.
-
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
-
-### Markdown
-
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
-
-```markdown
-Syntax highlighted code block
-
-# Header 1
-## Header 2
-### Header 3
-
-- Bulleted
-- List
-
-1. Numbered
-2. List
-
-**Bold** and _Italic_ and `Code` text
-
-[Link](url) and ![Image](src)
-```
-
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
-
-### Jekyll Themes
-
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/MayankJasoria/UDP-Selective-Repeat/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
-
-### Support or Contact
-
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+This repository contains code to simulate the selective repeat protocol of pipelined packet transmission between a client and a server over the network. In this system, there is a server and a client, where the client requests for a file (input.txt) from the server. For each packet of data that the client receives from the server, it sends an appropriate acknowledgement to the server which specifies the last in-sequence byte received by the client. The communication occurs via two relays, such that each relay is made to randomly drop some packets sent from the server to the client to mimic packet loss occurring over the network. However, for simplicity, the acknowledgement packets are never dropped.
